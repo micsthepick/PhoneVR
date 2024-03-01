@@ -38,4 +38,12 @@
     <string name="switch_viewer">
             Switch Cardboard viewer
     </string>
+    <string name="title_activity_passthrough_settings">PassthroughSettingsActivity</string>
+
+    <!-- Preference Titles -->
+    <string name="passthrough_header">Passthrough</string>
+
+    <!-- Messages Preferences -->
+    <string name="passthrough_fraction">Passthrough fraction</string>
+    <string name="passthrough_activate">Enable passthrough</string>
 </resources>

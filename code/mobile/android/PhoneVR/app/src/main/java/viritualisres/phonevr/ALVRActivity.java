@@ -25,6 +25,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.preference.PreferenceManager;
+import java.util.Map;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -41,6 +43,12 @@ public class ALVRActivity extends AppCompatActivity
     private static final int PERMISSIONS_REQUEST_CODE = 2;
 
     private GLSurfaceView glView;
+    private boolean passthrough = false;
+
+    private int displayWidth = 0;
+    private int displayHeight = 0;
+
+    private CameraHolder cameraHolder = new CameraHolder();
 
     private BatteryMonitor bMonitor = new BatteryMonitor(this);
 
@@ -94,10 +102,10 @@ public class ALVRActivity extends AppCompatActivity
 
         DisplayMetrics displayMetrics = new DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
-        int width = displayMetrics.widthPixels;
-        int height = displayMetrics.heightPixels;
+        displayWidth = displayMetrics.widthPixels;
+        displayHeight = displayMetrics.heightPixels;
 
-        initializeNative(width, height);
+        initializeNative(displayWidth, displayHeight);
 
         setContentView(R.layout.activity_vr);
         glView = findViewById(R.id.surface_view);
@@ -136,7 +144,9 @@ public class ALVRActivity extends AppCompatActivity
         Log.d(TAG, "Pausing ALVR Activity");
         pauseNative();
         glView.onPause();
+        setPassthroughActiveNative(false);
         bMonitor.stopMonitoring(this);
+        cameraHolder.releaseCamera();
     }
 
     @Override
@@ -144,12 +154,31 @@ public class ALVRActivity extends AppCompatActivity
         super.onResume();
         Log.d(TAG, "Resuming ALVR Activity");
 
+        Map<String, ?> pref = PreferenceManager.getDefaultSharedPreferences(this).getAll();
+        float size = 0.5f;
+        try {
+            size = Float.parseFloat(pref.get("passthrough_fraction").toString());
+        } catch (RuntimeException e) {
+        }
+
+        passthrough = (boolean) pref.get("passthrough_enable");
+
         if (VERSION.SDK_INT < VERSION_CODES.Q && !isReadExternalStorageEnabled()) {
             final String[] permissions = new String[] {Manifest.permission.READ_EXTERNAL_STORAGE};
             ActivityCompat.requestPermissions(this, permissions, PERMISSIONS_REQUEST_CODE);
 
             return;
         }
+
+        // TODO SEt passthrough on when ...
+        if (displayWidth > displayHeight) {
+            cameraHolder.openCamera(-1, displayWidth / 2, displayHeight);
+        } else {
+            cameraHolder.openCamera(-1, displayHeight / 2, displayWidth);
+        }
+
+        setPassthroughSizeNative(size);
+        setPassthroughActiveNative(passthrough);
 
         glView.onResume();
         resumeNative();
@@ -161,6 +190,7 @@ public class ALVRActivity extends AppCompatActivity
         super.onDestroy();
         Log.d(TAG, "Destroying ALVR Activity");
         destroyNative();
+        cameraHolder.releaseCamera();
     }
 
     @Override
@@ -174,16 +204,21 @@ public class ALVRActivity extends AppCompatActivity
     private class Renderer implements GLSurfaceView.Renderer {
         @Override
         public void onSurfaceCreated(GL10 gl10, EGLConfig eglConfig) {
-            surfaceCreatedNative();
+            int texID = surfaceCreatedNative();
+            cameraHolder.createTexture(texID);
         }
 
         @Override
         public void onSurfaceChanged(GL10 gl10, int width, int height) {
             setScreenResolutionNative(width, height);
+            if (passthrough) {
+                cameraHolder.startPreview();
+            }
         }
 
         @Override
         public void onDrawFrame(GL10 gl10) {
+            cameraHolder.update();
             renderNative();
         }
     }
@@ -207,6 +242,11 @@ public class ALVRActivity extends AppCompatActivity
     public boolean onMenuItemClick(MenuItem item) {
         if (item.getItemId() == R.id.switch_viewer) {
             switchViewerNative();
+            return true;
+        }
+        if (item.getItemId() == R.id.passthrough_settings) {
+            Intent settings = new Intent(this, PassthroughSettingsActivity.class);
+            startActivity(settings);
             return true;
         }
         return false;
@@ -256,7 +296,7 @@ public class ALVRActivity extends AppCompatActivity
 
     private native void pauseNative();
 
-    private native void surfaceCreatedNative();
+    private native int surfaceCreatedNative();
 
     private native void setScreenResolutionNative(int width, int height);
 
@@ -265,4 +305,8 @@ public class ALVRActivity extends AppCompatActivity
     private native void switchViewerNative();
 
     private native void sendBatteryLevel(float level, boolean plugged);
+
+    private native void setPassthroughSizeNative(float size);
+
+    private native void setPassthroughActiveNative(boolean activate);
 }

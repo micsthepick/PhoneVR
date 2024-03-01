@@ -1,0 +1,18 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory app:title="@string/passthrough_header">
+
+        <SwitchPreferenceCompat
+            app:key="passthrough_enable"
+            app:title="@string/passthrough_activate" />
+        <EditTextPreference
+            app:key="passthrough_fraction"
+            app:title="@string/passthrough_fraction"
+            app:useSimpleSummaryProvider="true"
+            android:inputType="numberDecimal"
+            android:defaultValue="0.5"/>
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

@@ -8,6 +8,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <GLES2/gl2ext.h>
 
 #include "common.h"
 
@@ -43,6 +44,70 @@ struct Pose {
     AlvrQuat orientation;
 };
 
+GLuint LoadGLShader(GLenum type, const char* shader_source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &shader_source, nullptr);
+    glCompileShader(shader);
+
+    // Get the compilation status.
+    GLint compile_status;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compile_status);
+
+    // If the compilation failed, delete the shader and show an error.
+    if (compile_status == 0) {
+        GLint info_len = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &info_len);
+        if (info_len == 0) {
+            return 0;
+        }
+
+        std::vector<char> info_string(info_len);
+        glGetShaderInfoLog(shader, info_string.size(), nullptr, info_string.data());
+        //LOGE("Could not compile shader of type %d: %s", type, info_string.data());
+        glDeleteShader(shader);
+        return 0;
+    } else {
+        return shader;
+    }
+}
+
+namespace {
+    // Simple shaders to render camera Texture files without any lighting.
+    constexpr const char* camVertexShader =
+            R"glsl(
+    uniform mat4 u_MVP;
+    attribute vec4 a_Position;
+    attribute vec2 a_UV;
+    varying vec2 v_UV;
+
+    void main() {
+      v_UV = a_UV;
+      gl_Position = a_Position;
+    })glsl";
+
+    constexpr const char* camFragmentShader =
+            R"glsl(
+    #extension GL_OES_EGL_image_external : require
+    precision mediump float;
+    varying vec2 v_UV;
+    uniform samplerExternalOES sTexture;
+    void main() {
+        gl_FragColor = texture2D(sTexture, v_UV);
+    })glsl";
+
+    static int passthrough_program_ = 0;
+    static int texture_position_param_ = 0;
+    static int texture_uv_param_ = 0;
+    static int texture_mvp_param_ = 0;
+
+    float passthrough_tex_coords[] = {
+            0.0, 1.0,
+            1.0, 1.0,
+            0.0, 0.0,
+            1.0, 0.0
+    };
+}
+
 struct NativeContext {
     JavaVM *javaVm = nullptr;
     jobject javaContext = nullptr;
@@ -59,11 +124,23 @@ struct NativeContext {
 
     bool running = false;
     bool streaming = false;
+    bool passthrough = false;
     std::thread inputThread;
 
     // Une one texture per eye, no need for swapchains.
     GLuint lobbyTextures[2] = {};
     GLuint streamTextures[2] = {};
+
+    GLuint cameraTexture = 0;
+    GLuint passthroughTexture = 0;
+    CardboardEyeTextureDescription passthrough_left_eye;
+    CardboardEyeTextureDescription passthrough_right_eye;
+
+    GLuint passthroughDepthRenderBuffer = 0;
+    GLuint passthroughFramebuffer = 0;
+
+    float passthrough_vertices[8];
+    float passthrough_size = 1.0;
 
     float eyeOffsets[2] = {};
 };
@@ -138,6 +215,19 @@ Pose getPose(uint64_t timestampNs) {
     return pose;
 }
 
+void createPassthroughPlane(NativeContext *ctx){
+    float size = ctx->passthrough_size;
+    float x0 = -size, y0 =  size; // Top left
+    float x1 =  size, y1 =  size; // Top right
+    float x2 =  size, y2 = -size; // Bottom right
+    float x3 = -size, y3 = -size; // Bottom left
+
+    ctx->passthrough_vertices[0] = x3; ctx->passthrough_vertices[1] = y3;
+    ctx->passthrough_vertices[2] = x2; ctx->passthrough_vertices[3] = y2;
+    ctx->passthrough_vertices[4] = x0; ctx->passthrough_vertices[5] = y0;
+    ctx->passthrough_vertices[6] = x1; ctx->passthrough_vertices[7] = y1;
+}
+
 void inputThread() {
     auto deadline = std::chrono::steady_clock::now();
 
@@ -187,6 +277,7 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_initia
 
     Cardboard_initializeAndroid(CTX.javaVm, CTX.javaContext);
     CTX.headTracker = CardboardHeadTracker_create();
+    createPassthroughPlane(&CTX);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_destroyNative(JNIEnv *,
@@ -216,9 +307,10 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_resume
     }
     CardboardQrCode_destroy(buffer);
 
-    CTX.running = true;
-
-    alvr_resume();
+    if (!CTX.passthrough) {
+        CTX.running = true;
+        alvr_resume();
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseNative(JNIEnv *,
@@ -233,10 +325,48 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseN
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_viritualisres_phonevr_ALVRActivity_setPassthroughActiveNative(JNIEnv *, jobject, jboolean activate) {
+    CTX.passthrough = activate;
+    CTX.renderingParamsChanged = true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_viritualisres_phonevr_ALVRActivity_setPassthroughSizeNative(JNIEnv *, jobject, jfloat size) {
+    CTX.passthrough_size = size;
+    createPassthroughPlane(&CTX);
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_viritualisres_phonevr_ALVRActivity_surfaceCreatedNative(JNIEnv *, jobject) {
     alvr_initialize_opengl();
 
+    const int obj_vertex_shader =
+            LoadGLShader(GL_VERTEX_SHADER, camVertexShader);
+    const int obj_fragment_shader =
+            LoadGLShader(GL_FRAGMENT_SHADER, camFragmentShader);
+
+    passthrough_program_ = glCreateProgram();
+    glAttachShader(passthrough_program_, obj_vertex_shader);
+    glAttachShader(passthrough_program_, obj_fragment_shader);
+    glLinkProgram(passthrough_program_);
+
+    glUseProgram(passthrough_program_);
+    texture_position_param_ = glGetAttribLocation(passthrough_program_, "a_Position");
+    texture_uv_param_ = glGetAttribLocation(passthrough_program_, "a_UV");
+    texture_mvp_param_ = glGetUniformLocation(passthrough_program_, "u_MVP");
+
+    // TODO initialize plane mesh and texture
+    glGenTextures(1, &CTX.cameraTexture);
+    glActiveTexture(GL_TEXTURE0);
+
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, CTX.cameraTexture);
+    glTexParameterf(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameterf(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+
     CTX.glContextRecreated = true;
+    return CTX.cameraTexture;
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_setScreenResolutionNative(
@@ -250,6 +380,54 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_setScr
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_sendBatteryLevel(
     JNIEnv *, jobject, jfloat level, jboolean plugged) {
     alvr_send_battery(HEAD_ID, level, plugged);
+}
+
+void passthroughSetup() {
+    if (CTX.passthroughFramebuffer != 0) {
+        glDeleteRenderbuffers(1, &CTX.passthroughDepthRenderBuffer);
+        CTX.passthroughDepthRenderBuffer = 0;
+        glDeleteFramebuffers(1, &CTX.passthroughFramebuffer);
+        CTX.passthroughFramebuffer = 0;
+        glDeleteTextures(1, &CTX.passthroughTexture);
+        CTX.passthroughTexture = 0;
+    }
+
+    // Create render texture.
+    glGenTextures(1, &CTX.passthroughTexture);
+    glBindTexture(GL_TEXTURE_2D, CTX.passthroughTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, CTX.screenWidth, CTX.screenHeight, 0,
+                 GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+    CTX.passthrough_left_eye.texture = CTX.passthroughTexture;
+    CTX.passthrough_left_eye.left_u = 0;
+    CTX.passthrough_left_eye.right_u = 0.5;
+    CTX.passthrough_left_eye.top_v = 1;
+    CTX.passthrough_left_eye.bottom_v = 0;
+
+    CTX.passthrough_right_eye.texture = CTX.passthroughTexture;
+    CTX.passthrough_right_eye.left_u = 0.5;
+    CTX.passthrough_right_eye.right_u = 1;
+    CTX.passthrough_right_eye.top_v = 1;
+    CTX.passthrough_right_eye.bottom_v = 0;
+
+    // Generate depth buffer to perform depth test.
+    glGenRenderbuffers(1, &CTX.passthroughDepthRenderBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, CTX.passthroughDepthRenderBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, CTX.screenWidth,
+                          CTX.screenHeight);
+
+    // Create render target.
+    glGenFramebuffers(1, &CTX.passthroughFramebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, CTX.passthroughFramebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           CTX.passthroughTexture, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, CTX.passthroughDepthRenderBuffer);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_renderNative(JNIEnv *,
@@ -275,6 +453,10 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
 
         CardboardQrCode_destroy(buffer);
         *buffer = 0;
+
+        if (CTX.passthrough){
+            passthroughSetup();
+        }
 
         if (CTX.distortionRenderer) {
             CardboardDistortionRenderer_destroy(CTX.distortionRenderer);
@@ -305,6 +487,46 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
         alvr_pause_opengl();
 
         glDeleteTextures(2, CTX.lobbyTextures);
+    }
+
+    // Draw Passthrough video for each eye
+    if (CTX.passthrough) {
+        glBindFramebuffer(GL_FRAMEBUFFER, CTX.passthroughFramebuffer);
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        for (int eye = 0; eye < 2; ++eye) {
+            glViewport(eye == kLeft ? 0 : CTX.screenWidth / 2, 0, CTX.screenWidth / 2,
+                       CTX.screenHeight);
+
+            glUseProgram(passthrough_program_);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_EXTERNAL_OES, CTX.cameraTexture);
+
+            // Draw Mesh
+            glEnableVertexAttribArray(texture_position_param_);
+            glVertexAttribPointer(texture_position_param_, 2, GL_FLOAT, false, 0,
+                                  CTX.passthrough_vertices);
+            glEnableVertexAttribArray(texture_uv_param_);
+            glVertexAttribPointer(texture_uv_param_, 2, GL_FLOAT, false, 0, passthrough_tex_coords);
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+
+        CardboardDistortionRenderer_renderEyeToDisplay(
+                CTX.distortionRenderer, 0, 0, 0,
+                CTX.screenWidth, CTX.screenHeight, &CTX.passthrough_left_eye,
+                &CTX.passthrough_right_eye);
+
+        CTX.renderingParamsChanged = false;
+        CTX.glContextRecreated = false;
+
+        return;
     }
 
     if (CTX.renderingParamsChanged || CTX.glContextRecreated) {
