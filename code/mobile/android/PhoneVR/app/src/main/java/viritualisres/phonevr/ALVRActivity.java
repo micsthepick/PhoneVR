@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.opengl.GLSurfaceView;
@@ -26,7 +27,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
-import java.util.Map;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -51,6 +51,8 @@ public class ALVRActivity extends AppCompatActivity
     private CameraHolder cameraHolder = new CameraHolder();
 
     private BatteryMonitor bMonitor = new BatteryMonitor(this);
+
+    private SharedPreferences pref = null;
 
     public class BatteryMonitor extends BroadcastReceiver {
         private BatteryLevelListener listener;
@@ -130,6 +132,8 @@ public class ALVRActivity extends AppCompatActivity
 
         // Prevents screen from dimming/locking.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        pref = PreferenceManager.getDefaultSharedPreferences(this);
     }
 
     @Override
@@ -152,16 +156,11 @@ public class ALVRActivity extends AppCompatActivity
     @Override
     protected void onResume() {
         super.onResume();
+        SharedPreferences.Editor edit = pref.edit();
+        edit.putBoolean("passthrough", false);
+        edit.apply();
+
         Log.d(TAG, "Resuming ALVR Activity");
-
-        Map<String, ?> pref = PreferenceManager.getDefaultSharedPreferences(this).getAll();
-        float size = 0.5f;
-        try {
-            size = Float.parseFloat(pref.get("passthrough_fraction").toString());
-        } catch (RuntimeException e) {
-        }
-
-        passthrough = (boolean) pref.get("passthrough_enable");
 
         if (VERSION.SDK_INT < VERSION_CODES.Q && !isReadExternalStorageEnabled()) {
             final String[] permissions = new String[] {Manifest.permission.READ_EXTERNAL_STORAGE};
@@ -170,19 +169,34 @@ public class ALVRActivity extends AppCompatActivity
             return;
         }
 
-        // TODO SEt passthrough on when ...
         if (displayWidth > displayHeight) {
             cameraHolder.openCamera(-1, displayWidth / 2, displayHeight);
         } else {
             cameraHolder.openCamera(-1, displayHeight / 2, displayWidth);
         }
 
-        setPassthroughSizeNative(size);
-        setPassthroughActiveNative(passthrough);
-
         glView.onResume();
         resumeNative();
         bMonitor.startMonitoring(this);
+    }
+
+    protected void changeMode(boolean passthrough) {
+        if (passthrough) {
+            float size = 0.5f;
+            try {
+                size = Float.parseFloat(pref.getString("passthrough_fraction", "0.5"));
+            } catch (RuntimeException e) {
+            }
+
+            setPassthroughSizeNative(size);
+        }
+        setPassthroughActiveNative(passthrough);
+
+        if (passthrough) {
+            cameraHolder.startPreview();
+        } else {
+            cameraHolder.stopPreview();
+        }
     }
 
     @Override
@@ -211,9 +225,6 @@ public class ALVRActivity extends AppCompatActivity
         @Override
         public void onSurfaceChanged(GL10 gl10, int width, int height) {
             setScreenResolutionNative(width, height);
-            if (passthrough) {
-                cameraHolder.startPreview();
-            }
         }
 
         @Override
@@ -234,6 +245,10 @@ public class ALVRActivity extends AppCompatActivity
         PopupMenu popup = new PopupMenu(this, view);
         MenuInflater inflater = popup.getMenuInflater();
         inflater.inflate(R.menu.settings_menu, popup.getMenu());
+        MenuItem box = popup.getMenu().findItem(R.id.passthrough);
+        if (box != null) {
+            box.setChecked(pref.getBoolean("passthrough", false));
+        }
         popup.setOnMenuItemClickListener(this);
         popup.show();
     }
@@ -247,6 +262,17 @@ public class ALVRActivity extends AppCompatActivity
         if (item.getItemId() == R.id.passthrough_settings) {
             Intent settings = new Intent(this, PassthroughSettingsActivity.class);
             startActivity(settings);
+            return true;
+        }
+        if (item.getItemId() == R.id.passthrough) {
+            SharedPreferences.Editor edit = pref.edit();
+            boolean pass = true;
+            if (item.isChecked()) {
+                pass = false;
+            }
+            edit.putBoolean("passthrough", pass);
+            edit.apply();
+            changeMode(pass);
             return true;
         }
         return false;

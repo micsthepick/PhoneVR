@@ -102,6 +102,12 @@ public class CameraHolder {
         }
     }
 
+    public void stopPreview() {
+        if (mCamera != null) {
+            mCamera.stopPreview();
+        }
+    }
+
     public void update() {
         if (mTexture != null) {
             mTexture.updateTexImage();

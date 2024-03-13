@@ -3,9 +3,6 @@
 
     <PreferenceCategory app:title="@string/passthrough_header">
 
-        <SwitchPreferenceCompat
-            app:key="passthrough_enable"
-            app:title="@string/passthrough_activate" />
         <EditTextPreference
             app:key="passthrough_fraction"
             app:title="@string/passthrough_fraction"

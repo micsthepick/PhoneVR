@@ -307,10 +307,8 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_resume
     }
     CardboardQrCode_destroy(buffer);
 
-    if (!CTX.passthrough) {
-        CTX.running = true;
-        alvr_resume();
-    }
+    CTX.running = true;
+    alvr_resume();
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseNative(JNIEnv *,
@@ -382,16 +380,22 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_sendBa
     alvr_send_battery(HEAD_ID, level, plugged);
 }
 
-void passthroughSetup() {
-    if (CTX.passthroughFramebuffer != 0) {
+void cleanupPassthrough() {
+    if (CTX.passthroughDepthRenderBuffer != 0) {
         glDeleteRenderbuffers(1, &CTX.passthroughDepthRenderBuffer);
         CTX.passthroughDepthRenderBuffer = 0;
+    }
+    if (CTX.passthroughFramebuffer != 0) {
         glDeleteFramebuffers(1, &CTX.passthroughFramebuffer);
         CTX.passthroughFramebuffer = 0;
+    }
+    if (CTX.passthroughTexture != 0) {
         glDeleteTextures(1, &CTX.passthroughTexture);
         CTX.passthroughTexture = 0;
     }
+}
 
+void passthroughSetup() {
     // Create render texture.
     glGenTextures(1, &CTX.passthroughTexture);
     glBindTexture(GL_TEXTURE_2D, CTX.passthroughTexture);
@@ -402,18 +406,6 @@ void passthroughSetup() {
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, CTX.screenWidth, CTX.screenHeight, 0,
                  GL_RGB, GL_UNSIGNED_BYTE, 0);
-
-    CTX.passthrough_left_eye.texture = CTX.passthroughTexture;
-    CTX.passthrough_left_eye.left_u = 0;
-    CTX.passthrough_left_eye.right_u = 0.5;
-    CTX.passthrough_left_eye.top_v = 1;
-    CTX.passthrough_left_eye.bottom_v = 0;
-
-    CTX.passthrough_right_eye.texture = CTX.passthroughTexture;
-    CTX.passthrough_right_eye.left_u = 0.5;
-    CTX.passthrough_right_eye.right_u = 1;
-    CTX.passthrough_right_eye.top_v = 1;
-    CTX.passthrough_right_eye.bottom_v = 0;
 
     // Generate depth buffer to perform depth test.
     glGenRenderbuffers(1, &CTX.passthroughDepthRenderBuffer);
@@ -454,9 +446,10 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
         CardboardQrCode_destroy(buffer);
         *buffer = 0;
 
-        if (CTX.passthrough){
-            passthroughSetup();
-        }
+        //cleanupPassthrough();
+        //if (CTX.passthrough){
+        //    passthroughSetup();
+        //}
 
         if (CTX.distortionRenderer) {
             CardboardDistortionRenderer_destroy(CTX.distortionRenderer);
@@ -485,76 +478,39 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
     if (CTX.renderingParamsChanged && !CTX.glContextRecreated) {
         info("Pausing ALVR since glContext is not recreated, deleting textures");
         alvr_pause_opengl();
-
+        cleanupPassthrough();
         glDeleteTextures(2, CTX.lobbyTextures);
     }
 
-    // Draw Passthrough video for each eye
-    if (CTX.passthrough) {
-        glBindFramebuffer(GL_FRAMEBUFFER, CTX.passthroughFramebuffer);
-
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glDisable(GL_SCISSOR_TEST);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        for (int eye = 0; eye < 2; ++eye) {
-            glViewport(eye == kLeft ? 0 : CTX.screenWidth / 2, 0, CTX.screenWidth / 2,
-                       CTX.screenHeight);
-
-            glUseProgram(passthrough_program_);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_EXTERNAL_OES, CTX.cameraTexture);
-
-            // Draw Mesh
-            glEnableVertexAttribArray(texture_position_param_);
-            glVertexAttribPointer(texture_position_param_, 2, GL_FLOAT, false, 0,
-                                  CTX.passthrough_vertices);
-            glEnableVertexAttribArray(texture_uv_param_);
-            glVertexAttribPointer(texture_uv_param_, 2, GL_FLOAT, false, 0, passthrough_tex_coords);
-
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        }
-
-        CardboardDistortionRenderer_renderEyeToDisplay(
-                CTX.distortionRenderer, 0, 0, 0,
-                CTX.screenWidth, CTX.screenHeight, &CTX.passthrough_left_eye,
-                &CTX.passthrough_right_eye);
-
-        CTX.renderingParamsChanged = false;
-        CTX.glContextRecreated = false;
-
-        return;
-    }
-
     if (CTX.renderingParamsChanged || CTX.glContextRecreated) {
-        info("Rebuilding, binding textures, Resuming ALVR since glContextRecreated %b, "
-             "renderingParamsChanged %b",
-             CTX.renderingParamsChanged,
-             CTX.glContextRecreated);
-        glGenTextures(2, CTX.lobbyTextures);
+        if (CTX.passthrough) {
+            passthroughSetup();
+        } else {
+            info("Rebuilding, binding textures, Resuming ALVR since glContextRecreated %b, "
+                 "renderingParamsChanged %b",
+                 CTX.renderingParamsChanged,
+                 CTX.glContextRecreated);
+            glGenTextures(2, CTX.lobbyTextures);
 
-        for (auto &lobbyTexture : CTX.lobbyTextures) {
-            glBindTexture(GL_TEXTURE_2D, lobbyTexture);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexImage2D(GL_TEXTURE_2D,
-                         0,
-                         GL_RGB,
-                         CTX.screenWidth / 2,
-                         CTX.screenHeight,
-                         0,
-                         GL_RGB,
-                         GL_UNSIGNED_BYTE,
-                         nullptr);
+            for (auto &lobbyTexture: CTX.lobbyTextures) {
+                glBindTexture(GL_TEXTURE_2D, lobbyTexture);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexImage2D(GL_TEXTURE_2D,
+                             0,
+                             GL_RGB,
+                             CTX.screenWidth / 2,
+                             CTX.screenHeight,
+                             0,
+                             GL_RGB,
+                             GL_UNSIGNED_BYTE,
+                             nullptr);
+            }
+
+            const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
+                                              (uint32_t *) &CTX.lobbyTextures[1]};
+            alvr_resume_opengl(CTX.screenWidth / 2, CTX.screenHeight, targetViews, 1);
         }
-
-        const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
-                                          (uint32_t *) &CTX.lobbyTextures[1]};
-        alvr_resume_opengl(CTX.screenWidth / 2, CTX.screenHeight, targetViews, 1);
-
         CTX.renderingParamsChanged = false;
         CTX.glContextRecreated = false;
     }
@@ -641,7 +597,40 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
         viewsDesc.bottom_v = 0.0;
     }
 
-    if (CTX.streaming) {
+    if (CTX.passthrough) {
+        glBindFramebuffer(GL_FRAMEBUFFER, CTX.passthroughFramebuffer);
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Draw Passthrough video for each eye
+        for (int eye = 0; eye < 2; ++eye) {
+            glViewport(eye == kLeft ? 0 : CTX.screenWidth / 2, 0, CTX.screenWidth / 2,
+                       CTX.screenHeight);
+
+            glUseProgram(passthrough_program_);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_EXTERNAL_OES, CTX.cameraTexture);
+
+            // Draw Mesh
+            glEnableVertexAttribArray(texture_position_param_);
+            glVertexAttribPointer(texture_position_param_, 2, GL_FLOAT, false, 0,
+                                  CTX.passthrough_vertices);
+            glEnableVertexAttribArray(texture_uv_param_);
+            glVertexAttribPointer(texture_uv_param_, 2, GL_FLOAT, false, 0, passthrough_tex_coords);
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            viewsDescs[eye].left_u = 0.5*eye; // 0 for left, 0.5 for right
+            viewsDescs[eye].right_u = 0.5+0.5*eye; // 0.5 for left, 1.0 for right
+        }
+        viewsDescs[0].texture = CTX.passthroughTexture;
+        viewsDescs[1].texture = CTX.passthroughTexture;
+    } else if (CTX.streaming) {
         void *streamHardwareBuffer = nullptr;
         auto timestampNs = alvr_get_frame(&streamHardwareBuffer);
 
