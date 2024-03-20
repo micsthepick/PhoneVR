@@ -43,7 +43,6 @@ public class ALVRActivity extends AppCompatActivity
     private static final int PERMISSIONS_REQUEST_CODE = 2;
 
     private GLSurfaceView glView;
-    private boolean passthrough = false;
 
     private int displayWidth = 0;
     private int displayHeight = 0;
@@ -169,12 +168,6 @@ public class ALVRActivity extends AppCompatActivity
             return;
         }
 
-        if (displayWidth > displayHeight) {
-            cameraHolder.openCamera(-1, displayWidth / 2, displayHeight);
-        } else {
-            cameraHolder.openCamera(-1, displayHeight / 2, displayWidth);
-        }
-
         glView.onResume();
         resumeNative();
         bMonitor.startMonitoring(this);
@@ -182,6 +175,14 @@ public class ALVRActivity extends AppCompatActivity
 
     protected void changeMode(boolean passthrough) {
         if (passthrough) {
+            int w = displayWidth / 2;
+            int h = displayHeight;
+            if (displayWidth < displayHeight) {
+                w = displayHeight / 2;
+                h = displayWidth;
+            }
+            cameraHolder.openCamera(-1, w, h, pref.getBoolean("passthrough_recording", true));
+
             float size = 0.5f;
             try {
                 size = Float.parseFloat(pref.getString("passthrough_fraction", "0.5"));
@@ -195,7 +196,8 @@ public class ALVRActivity extends AppCompatActivity
         if (passthrough) {
             cameraHolder.startPreview();
         } else {
-            cameraHolder.stopPreview();
+            // cameraHolder.stopPreview();
+            cameraHolder.releaseCamera();
         }
     }
 

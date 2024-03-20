@@ -22,7 +22,7 @@ public class CameraHolder {
         mTexture = new SurfaceTexture(textureID);
     }
 
-    public void openCamera(int camNr, int desiredWidth, int desiredHeight) {
+    public void openCamera(int camNr, int desiredWidth, int desiredHeight, boolean recordingHint) {
         if (mCamera != null) {
             // TODO maybe print only a warning
             throw new RuntimeException("Camera already initialized");
@@ -54,7 +54,7 @@ public class CameraHolder {
         mPreviewSize = chooseOptimalSize(choices, desiredWidth, desiredHeight);
         Log.d(TAG, "PreviewSize: " + mPreviewSize.width + "x" + mPreviewSize.height);
         params.setPreviewSize(mPreviewSize.width, mPreviewSize.height);
-        params.setRecordingHint(true); // Can increase fps in passthrough mode
+        params.setRecordingHint(recordingHint); // Can increase fps in passthrough mode
         mCamera.setParameters(params);
     }
 
