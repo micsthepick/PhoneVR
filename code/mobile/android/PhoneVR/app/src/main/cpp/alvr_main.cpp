@@ -1,6 +1,7 @@
 #include "alvr_client_core.h"
 #include "cardboard.h"
 #include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
 #include <algorithm>
 #include <deque>
 #include <jni.h>
@@ -8,7 +9,6 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
-#include <GLES2/gl2ext.h>
 
 #include "common.h"
 
@@ -44,7 +44,7 @@ struct Pose {
     AlvrQuat orientation;
 };
 
-GLuint LoadGLShader(GLenum type, const char* shader_source) {
+GLuint LoadGLShader(GLenum type, const char *shader_source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &shader_source, nullptr);
     glCompileShader(shader);
@@ -63,7 +63,7 @@ GLuint LoadGLShader(GLenum type, const char* shader_source) {
 
         std::vector<char> info_string(info_len);
         glGetShaderInfoLog(shader, info_string.size(), nullptr, info_string.data());
-        //LOGE("Could not compile shader of type %d: %s", type, info_string.data());
+        // LOGE("Could not compile shader of type %d: %s", type, info_string.data());
         glDeleteShader(shader);
         return 0;
     } else {
@@ -73,8 +73,8 @@ GLuint LoadGLShader(GLenum type, const char* shader_source) {
 
 namespace {
     // Simple shaders to render camera Texture files without any lighting.
-    constexpr const char* camVertexShader =
-            R"glsl(
+    constexpr const char *camVertexShader =
+        R"glsl(
     uniform mat4 u_MVP;
     attribute vec4 a_Position;
     attribute vec2 a_UV;
@@ -85,8 +85,8 @@ namespace {
       gl_Position = a_Position;
     })glsl";
 
-    constexpr const char* camFragmentShader =
-            R"glsl(
+    constexpr const char *camFragmentShader =
+        R"glsl(
     #extension GL_OES_EGL_image_external : require
     precision mediump float;
     varying vec2 v_UV;
@@ -100,13 +100,8 @@ namespace {
     static int texture_uv_param_ = 0;
     static int texture_mvp_param_ = 0;
 
-    float passthrough_tex_coords[] = {
-            0.0, 1.0,
-            1.0, 1.0,
-            0.0, 0.0,
-            1.0, 0.0
-    };
-}
+    float passthrough_tex_coords[] = {0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0};
+}   // namespace
 
 struct NativeContext {
     JavaVM *javaVm = nullptr;
@@ -215,17 +210,21 @@ Pose getPose(uint64_t timestampNs) {
     return pose;
 }
 
-void createPassthroughPlane(NativeContext *ctx){
+void createPassthroughPlane(NativeContext *ctx) {
     float size = ctx->passthrough_size;
-    float x0 = -size, y0 =  size; // Top left
-    float x1 =  size, y1 =  size; // Top right
-    float x2 =  size, y2 = -size; // Bottom right
-    float x3 = -size, y3 = -size; // Bottom left
+    float x0 = -size, y0 = size;    // Top left
+    float x1 = size, y1 = size;     // Top right
+    float x2 = size, y2 = -size;    // Bottom right
+    float x3 = -size, y3 = -size;   // Bottom left
 
-    ctx->passthrough_vertices[0] = x3; ctx->passthrough_vertices[1] = y3;
-    ctx->passthrough_vertices[2] = x2; ctx->passthrough_vertices[3] = y2;
-    ctx->passthrough_vertices[4] = x0; ctx->passthrough_vertices[5] = y0;
-    ctx->passthrough_vertices[6] = x1; ctx->passthrough_vertices[7] = y1;
+    ctx->passthrough_vertices[0] = x3;
+    ctx->passthrough_vertices[1] = y3;
+    ctx->passthrough_vertices[2] = x2;
+    ctx->passthrough_vertices[3] = y2;
+    ctx->passthrough_vertices[4] = x0;
+    ctx->passthrough_vertices[5] = y0;
+    ctx->passthrough_vertices[6] = x1;
+    ctx->passthrough_vertices[7] = y1;
 }
 
 void inputThread() {
@@ -323,7 +322,9 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseN
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_viritualisres_phonevr_ALVRActivity_setPassthroughActiveNative(JNIEnv *, jobject, jboolean activate) {
+Java_viritualisres_phonevr_ALVRActivity_setPassthroughActiveNative(JNIEnv *,
+                                                                   jobject,
+                                                                   jboolean activate) {
     CTX.passthrough = activate;
     CTX.renderingParamsChanged = true;
 }
@@ -338,10 +339,8 @@ extern "C" JNIEXPORT jint JNICALL
 Java_viritualisres_phonevr_ALVRActivity_surfaceCreatedNative(JNIEnv *, jobject) {
     alvr_initialize_opengl();
 
-    const int obj_vertex_shader =
-            LoadGLShader(GL_VERTEX_SHADER, camVertexShader);
-    const int obj_fragment_shader =
-            LoadGLShader(GL_FRAGMENT_SHADER, camFragmentShader);
+    const int obj_vertex_shader = LoadGLShader(GL_VERTEX_SHADER, camVertexShader);
+    const int obj_fragment_shader = LoadGLShader(GL_FRAGMENT_SHADER, camFragmentShader);
 
     passthrough_program_ = glCreateProgram();
     glAttachShader(passthrough_program_, obj_vertex_shader);
@@ -359,9 +358,9 @@ Java_viritualisres_phonevr_ALVRActivity_surfaceCreatedNative(JNIEnv *, jobject) 
 
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, CTX.cameraTexture);
     glTexParameterf(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameterf(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexParameterf(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     CTX.glContextRecreated = true;
     return CTX.cameraTexture;
@@ -404,22 +403,28 @@ void passthroughSetup() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, CTX.screenWidth, CTX.screenHeight, 0,
-                 GL_RGB, GL_UNSIGNED_BYTE, 0);
+    glTexImage2D(GL_TEXTURE_2D,
+                 0,
+                 GL_RGB,
+                 CTX.screenWidth,
+                 CTX.screenHeight,
+                 0,
+                 GL_RGB,
+                 GL_UNSIGNED_BYTE,
+                 0);
 
     // Generate depth buffer to perform depth test.
     glGenRenderbuffers(1, &CTX.passthroughDepthRenderBuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, CTX.passthroughDepthRenderBuffer);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, CTX.screenWidth,
-                          CTX.screenHeight);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, CTX.screenWidth, CTX.screenHeight);
 
     // Create render target.
     glGenFramebuffers(1, &CTX.passthroughFramebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, CTX.passthroughFramebuffer);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           CTX.passthroughTexture, 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                              GL_RENDERBUFFER, CTX.passthroughDepthRenderBuffer);
+    glFramebufferTexture2D(
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, CTX.passthroughTexture, 0);
+    glFramebufferRenderbuffer(
+        GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, CTX.passthroughDepthRenderBuffer);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_renderNative(JNIEnv *,
@@ -446,10 +451,10 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
         CardboardQrCode_destroy(buffer);
         *buffer = 0;
 
-        //cleanupPassthrough();
-        //if (CTX.passthrough){
-        //    passthroughSetup();
-        //}
+        // cleanupPassthrough();
+        // if (CTX.passthrough){
+        //     passthroughSetup();
+        // }
 
         if (CTX.distortionRenderer) {
             CardboardDistortionRenderer_destroy(CTX.distortionRenderer);
@@ -492,7 +497,7 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
                  CTX.glContextRecreated);
             glGenTextures(2, CTX.lobbyTextures);
 
-            for (auto &lobbyTexture: CTX.lobbyTextures) {
+            for (auto &lobbyTexture : CTX.lobbyTextures) {
                 glBindTexture(GL_TEXTURE_2D, lobbyTexture);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -609,8 +614,8 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
 
         // Draw Passthrough video for each eye
         for (int eye = 0; eye < 2; ++eye) {
-            glViewport(eye == kLeft ? 0 : CTX.screenWidth / 2, 0, CTX.screenWidth / 2,
-                       CTX.screenHeight);
+            glViewport(
+                eye == kLeft ? 0 : CTX.screenWidth / 2, 0, CTX.screenWidth / 2, CTX.screenHeight);
 
             glUseProgram(passthrough_program_);
             glActiveTexture(GL_TEXTURE0);
@@ -618,15 +623,15 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
 
             // Draw Mesh
             glEnableVertexAttribArray(texture_position_param_);
-            glVertexAttribPointer(texture_position_param_, 2, GL_FLOAT, false, 0,
-                                  CTX.passthrough_vertices);
+            glVertexAttribPointer(
+                texture_position_param_, 2, GL_FLOAT, false, 0, CTX.passthrough_vertices);
             glEnableVertexAttribArray(texture_uv_param_);
             glVertexAttribPointer(texture_uv_param_, 2, GL_FLOAT, false, 0, passthrough_tex_coords);
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-            viewsDescs[eye].left_u = 0.5*eye; // 0 for left, 0.5 for right
-            viewsDescs[eye].right_u = 0.5+0.5*eye; // 0.5 for left, 1.0 for right
+            viewsDescs[eye].left_u = 0.5 * eye;          // 0 for left, 0.5 for right
+            viewsDescs[eye].right_u = 0.5 + 0.5 * eye;   // 0.5 for left, 1.0 for right
         }
         viewsDescs[0].texture = CTX.passthroughTexture;
         viewsDescs[1].texture = CTX.passthroughTexture;
