@@ -321,16 +321,14 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseN
     CardboardHeadTracker_pause(CTX.headTracker);
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_viritualisres_phonevr_ALVRActivity_setPassthroughActiveNative(JNIEnv *,
-                                                                   jobject,
-                                                                   jboolean activate) {
+extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_Passthrough_setPassthroughActiveNative(
+    JNIEnv *, jobject, jboolean activate) {
     CTX.passthrough = activate;
     CTX.renderingParamsChanged = true;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_viritualisres_phonevr_ALVRActivity_setPassthroughSizeNative(JNIEnv *, jobject, jfloat size) {
+Java_viritualisres_phonevr_Passthrough_setPassthroughSizeNative(JNIEnv *, jobject, jfloat size) {
     CTX.passthrough_size = size;
     createPassthroughPlane(&CTX);
 }
