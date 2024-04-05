@@ -42,22 +42,22 @@ public class Passthrough implements SensorEventListener {
 
     private long timestamp = 0;
 
-    private long timestamp_i = 0;
+    private long timestampAfterCandidate = 0;
 
-    private long passthrough_delay_ms = 600;
+    private long passthroughDelayInMs = 600;
 
-    private float lower_bound = 0.8f;
+    private float detectionLowerBound = 0.8f;
 
-    private float higher_bound = 4f;
+    private float detectionUpperBound = 4f;
 
     private final List<Float>[] accelStore =
             new List[] {new ArrayList<>(), new ArrayList<>(), new ArrayList<>()};
 
     private int halfSize = 0;
 
-    private boolean trigger_set = false;
+    private boolean triggerIsSet = false;
 
-    private final List<Float> sums = new ArrayList<>();
+    private final List<Float> cumSums = new ArrayList<>();
 
     public Passthrough(
             SharedPreferences pref,
@@ -83,19 +83,20 @@ public class Passthrough implements SensorEventListener {
             timestamp = event.timestamp;
         }
 
-        if (timestamp_i == 0) {
-            timestamp_i = event.timestamp;
+        if (timestampAfterCandidate == 0) {
+            timestampAfterCandidate = event.timestamp;
         }
 
-        boolean initial_full = event.timestamp - timestamp > passthrough_delay_ms * 1000000L;
-        boolean over_i = event.timestamp - timestamp_i > passthrough_delay_ms * 1000000L;
+        boolean initialFull = event.timestamp - timestamp > passthroughDelayInMs * 1000000L;
+        boolean afterCandidateFull =
+                event.timestamp - timestampAfterCandidate > passthroughDelayInMs * 1000000L;
 
         // gather data for passthrough_delay_ms, we get a data point approx. each 60ms
         for (int i = 0; i < accelStore.length; ++i) {
             // derivative, absolute
             accelStore[i].add(event.values[i]);
 
-            if (initial_full) {
+            if (initialFull) {
                 // remove the first element to only store the last X elements
                 accelStore[i].remove(0);
                 if (halfSize == 0) {
@@ -122,33 +123,33 @@ public class Passthrough implements SensorEventListener {
             }
 
             // get the mean for each axis and sum them up
-            float[] axis_mean = new float[] {0.0f, 0.0f, 0.0f};
+            float[] axisMean = new float[] {0.0f, 0.0f, 0.0f};
             for (int i = 0; i < accelAbs.length; ++i) {
                 for (int j = 0; j < accelAbs[i].size(); ++j) {
-                    axis_mean[i] += accelAbs[i].get(j);
+                    axisMean[i] += accelAbs[i].get(j);
                 }
-                axis_mean[i] /= accelAbs[i].size();
+                axisMean[i] /= accelAbs[i].size();
             }
-            float sum_mean = axis_mean[0] + axis_mean[1] + axis_mean[2];
-            sums.add(sum_mean);
+            float sumMean = axisMean[0] + axisMean[1] + axisMean[2];
+            cumSums.add(sumMean);
 
-            if (sums.size() < accelAbs[0].size()) {
+            if (cumSums.size() < accelAbs[0].size()) {
                 return;
             } else {
                 // only store the last X elements
-                sums.remove(0);
+                cumSums.remove(0);
             }
 
-            if (!over_i) {
+            if (!afterCandidateFull) {
                 // if a potential passthrough_change event is found,
                 // check if the device does not move much anymore
-                if (!trigger_set && sum_mean < lower_bound) {
-                    trigger_set = true;
+                if (!triggerIsSet && sumMean < detectionLowerBound) {
+                    triggerIsSet = true;
                     // if passthroughMode not already changed... change it
                     changePassthroughMode();
                 }
             } else {
-                trigger_set = false;
+                triggerIsSet = false;
                 // here we check for potential passthrough_change events
                 // these may occur on any axis
                 for (List<Float> elem : accelAbs) {
@@ -169,16 +170,16 @@ public class Passthrough implements SensorEventListener {
                     float max1 = Collections.max(t1);
                     float max2 = Collections.max(t2);
 
-                    if (max1 - t1.get(0) < lower_bound
-                            || max1 - t1.get(t1.size() - 1) < lower_bound
-                            || max2 - t2.get(0) < lower_bound
-                            || max2 - t2.get(t2.size() - 1) < lower_bound
-                            || max1 < lower_bound
-                            || max1 > higher_bound
-                            || max2 < lower_bound
-                            || max2 > higher_bound
-                            || sum_mean < lower_bound
-                            || sum_mean > higher_bound) {
+                    if (max1 - t1.get(0) < detectionLowerBound
+                            || max1 - t1.get(t1.size() - 1) < detectionLowerBound
+                            || max2 - t2.get(0) < detectionLowerBound
+                            || max2 - t2.get(t2.size() - 1) < detectionLowerBound
+                            || max1 < detectionLowerBound
+                            || max1 > detectionUpperBound
+                            || max2 < detectionLowerBound
+                            || max2 > detectionUpperBound
+                            || sumMean < detectionLowerBound
+                            || sumMean > detectionUpperBound) {
                         continue;
                     }
 
@@ -188,15 +189,16 @@ public class Passthrough implements SensorEventListener {
                             end2 = i;
                         }
                         if (end2 > 0) {
-                            if (t2.get(i) < lower_bound) {
+                            if (t2.get(i) < detectionLowerBound) {
                                 end2 = i;
                                 break;
                             }
                         }
                     }
 
-                    if (sums.get(0) < Math.max(lower_bound - 0.3f, 0.5f) && t2.get(end2) < max2) {
-                        timestamp_i = event.timestamp;
+                    if (cumSums.get(0) < Math.max(detectionLowerBound - 0.3f, 0.5f)
+                            && t2.get(end2) < max2) {
+                        timestampAfterCandidate = event.timestamp;
                         break;
                     }
                 }
@@ -226,19 +228,19 @@ public class Passthrough implements SensorEventListener {
         halfSize = 0;
         if (mPref.getBoolean("passthrough_tap", true)) {
             try {
-                passthrough_delay_ms = Long.parseLong(mPref.getString("passthrough_delay", "600"));
+                passthroughDelayInMs = Long.parseLong(mPref.getString("passthrough_delay", "600"));
             } catch (Exception e) {
-                passthrough_delay_ms = 600;
+                passthroughDelayInMs = 600;
             }
             try {
-                lower_bound = Float.parseFloat(mPref.getString("passthrough_lower", "0.8"));
+                detectionLowerBound = Float.parseFloat(mPref.getString("passthrough_lower", "0.8"));
             } catch (Exception e) {
-                lower_bound = 0.8f;
+                detectionLowerBound = 0.8f;
             }
             try {
-                higher_bound = Float.parseFloat(mPref.getString("passthrough_upper", "4"));
+                detectionUpperBound = Float.parseFloat(mPref.getString("passthrough_upper", "4"));
             } catch (Exception e) {
-                higher_bound = 4.f;
+                detectionUpperBound = 4.f;
             }
 
             if (mAccelerometer != null) {

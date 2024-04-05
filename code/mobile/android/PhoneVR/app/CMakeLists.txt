@@ -20,6 +20,7 @@ file(GLOB_RECURSE  MY_SRC
 add_library(native-lib SHARED
     src/main/cpp/native-lib.cpp
     src/main/cpp/alvr_main.cpp
+    src/main/cpp/passthrough.cpp
     ${MY_SRC}
 )
 
