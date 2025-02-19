@@ -1,15 +1,9 @@
-import com.android.build.gradle.internal.dsl.PackagingOptions
-
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'com.android.application'
 apply plugin: 'com.google.gms.google-services'
 apply from: '../versioning.gradle'
 apply plugin: "com.diffplug.spotless"
-
-def keystorePropertiesFile = rootProject.file("keystore.properties")
-def keystoreProperties = new Properties()
-keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 
 def defaultALVRFlavour = "--release"
 
@@ -53,8 +47,6 @@ android {
             }
         }
 
-        defaultPublishConfig 'release'
-        publishNonDefault true
         archivesBaseName = "PhoneVR-v$versionName"
     }
     buildTypes {
@@ -135,17 +127,6 @@ android {
         jniLibs.useLegacyPackaging = true
         gradle.startParameter.getTaskNames().each { task ->
             println("[PVR] task is " + task)
-            if (task.contains('debug') || task.contains('Debug')) {
-                def android = project.extensions.findByName("android")
-
-                if(android != null) {
-                    PackagingOptions packagingOptions = android["packagingOptions"]
-
-                    if (packagingOptions != null) {
-                        packagingOptions.doNotStrip = [ "**/*.so" ]
-                    }
-                }
-            }
         }
     }
 }
