@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "nlohmann/json.hpp"
+#include "passthrough.h"
 #include "utils.h"
 
 using namespace nlohmann;
@@ -39,6 +40,7 @@ struct NativeContext {
 
     bool running = false;
     bool streaming = false;
+    PassthroughInfo passthroughInfo = {};
     std::thread inputThread;
 
     // Une one texture per eye, no need for swapchains.
@@ -225,6 +227,10 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_initia
 
     Cardboard_initializeAndroid(CTX.javaVm, CTX.javaContext);
     CTX.headTracker = CardboardHeadTracker_create();
+
+    CTX.passthroughInfo.screenWidth = &(CTX.screenWidth);
+    CTX.passthroughInfo.screenHeight = &(CTX.screenHeight);
+    passthrough_createPlane(&(CTX.passthroughInfo));
 }
 
 void initialize_decoder(AlvrDecoderConfig config) { alvr_create_decoder(config); }
@@ -244,6 +250,7 @@ void makeGLContextCurrent() {
                       CTX.eglCurrentContext));
     info("eglMakeCurrent() returned error %s", eglGetErrorString());
 }
+
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_destroyNative(JNIEnv *,
                                                                                         jobject) {
@@ -291,12 +298,25 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_pauseN
     CardboardHeadTracker_pause(CTX.headTracker);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_Passthrough_setPassthroughActiveNative(
+    JNIEnv *, jobject, jboolean activate) {
+    CTX.passthroughInfo.enabled = activate;
+    CTX.renderingParamsChanged = true;
+}
+
 extern "C" JNIEXPORT void JNICALL
+Java_viritualisres_phonevr_Passthrough_setPassthroughSizeNative(JNIEnv *, jobject, jfloat size) {
+    CTX.passthroughInfo.passthroughSize = size;
+    passthrough_createPlane(&(CTX.passthroughInfo));
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_viritualisres_phonevr_ALVRActivity_surfaceCreatedNative(JNIEnv *, jobject) {
 
     EGL_MAKE_CURRENT(alvr_initialize_opengl());
-
+    GLuint camTex = passthrough_init(&(CTX.passthroughInfo));
     CTX.glContextRecreated = true;
+    return camTex;
 }
 
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_setScreenResolutionNative(
@@ -369,33 +389,36 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
         if (CTX.renderingParamsChanged && !CTX.glContextRecreated) {
             info("Pausing ALVR since glContext is not recreated, deleting textures");
             EGL_MAKE_CURRENT(alvr_pause_opengl());
-
+            passthrough_cleanup(&(CTX.passthroughInfo));
             GL(glDeleteTextures(2, CTX.lobbyTextures));
         }
 
         if (CTX.renderingParamsChanged || CTX.glContextRecreated) {
-            info("Rebuilding, binding textures, Resuming ALVR since glContextRecreated %b, "
-                 "renderingParamsChanged %b",
-                 CTX.renderingParamsChanged,
-                 CTX.glContextRecreated);
-            GL(glGenTextures(2, CTX.lobbyTextures));
+            if (CTX.passthroughInfo.enabled) {
+                passthrough_setup(&(CTX.passthroughInfo));
+            } else {
+                info("Rebuilding, binding textures, Resuming ALVR since glContextRecreated %b, "
+                     "renderingParamsChanged %b",
+                     CTX.renderingParamsChanged,
+                     CTX.glContextRecreated);
+                GL(glGenTextures(2, CTX.lobbyTextures));
 
-            for (auto &lobbyTexture : CTX.lobbyTextures) {
-                GL(glBindTexture(GL_TEXTURE_2D, lobbyTexture));
-                GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-                GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-                GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-                GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-                GL(glTexImage2D(GL_TEXTURE_2D,
-                                0,
-                                GL_RGBA8,
-                                CTX.screenWidth / 2,
-                                CTX.screenHeight,
-                                0,
-                                GL_RGBA,
-                                GL_UNSIGNED_BYTE,
-                                nullptr));
-            }
+                for (auto &lobbyTexture : CTX.lobbyTextures) {
+                    GL(glBindTexture(GL_TEXTURE_2D, lobbyTexture));
+                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+                    GL(glTexImage2D(GL_TEXTURE_2D,
+                                    0,
+                                    GL_RGBA8,
+                                    CTX.screenWidth / 2,
+                                    CTX.screenHeight,
+                                    0,
+                                    GL_RGBA,
+                                    GL_UNSIGNED_BYTE,
+                                    nullptr));
+                }
 
             const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
                                               (uint32_t *) &CTX.lobbyTextures[1]};
@@ -565,7 +588,9 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
             viewsDesc.bottom_v = 0.0;
         }
 
-        if (CTX.streaming) {
+        if (CTX.passthroughInfo.enabled) {
+            passthrough_render(&(CTX.passthroughInfo), viewsDescs);
+        } else if (CTX.streaming) {
             void *streamHardwareBuffer = nullptr;
 
             uint64_t timestampNs;
