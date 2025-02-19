@@ -251,7 +251,6 @@ void makeGLContextCurrent() {
     info("eglMakeCurrent() returned error %s", eglGetErrorString());
 }
 
-
 extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_destroyNative(JNIEnv *,
                                                                                         jobject) {
     EGL_MAKE_CURRENT(alvr_destroy_opengl());
@@ -420,232 +419,234 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
                                     nullptr));
                 }
 
-            const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
-                                              (uint32_t *) &CTX.lobbyTextures[1]};
+                const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
+                                                  (uint32_t *) &CTX.lobbyTextures[1]};
 
-            EGL_MAKE_CURRENT(
-                alvr_resume_opengl(CTX.screenWidth / 2, CTX.screenHeight, targetViews, 1));
+                EGL_MAKE_CURRENT(
+                    alvr_resume_opengl(CTX.screenWidth / 2, CTX.screenHeight, targetViews, 1));
 
-            CTX.renderingParamsChanged = false;
-            CTX.glContextRecreated = false;
-        }
-
-        AlvrEvent event;
-        while (alvr_poll_event(&event)) {
-            if (event.tag == ALVR_EVENT_HUD_MESSAGE_UPDATED) {
-                auto message_length = alvr_hud_message(nullptr);
-                auto message_buffer = std::vector<char>(message_length);
-
-                alvr_hud_message(&message_buffer[0]);
-                info("ALVR Poll Event: HUD Message Update - %s", &message_buffer[0]);
-
-                if (message_length > 0) {
-                    EGL_MAKE_CURRENT(alvr_update_hud_message_opengl(&message_buffer[0]));
-                }
+                CTX.renderingParamsChanged = false;
+                CTX.glContextRecreated = false;
             }
-            if (event.tag == ALVR_EVENT_STREAMING_STARTED) {
-                info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, generating and binding "
-                     "textures...");
-                CTX.streamingConfig = event.STREAMING_STARTED;
 
-                auto settings_len = alvr_get_settings_json(nullptr);
-                auto settings_buffer = std::vector<char>(settings_len);
-                alvr_get_settings_json(&settings_buffer[0]);
+            AlvrEvent event;
+            while (alvr_poll_event(&event)) {
+                if (event.tag == ALVR_EVENT_HUD_MESSAGE_UPDATED) {
+                    auto message_length = alvr_hud_message(nullptr);
+                    auto message_buffer = std::vector<char>(message_length);
 
-                info("Got settings from ALVR Server - %s", &settings_buffer[0]);
-                if (settings_len > 900)   // to workthough logcat buffer limit
-                    info("Got settings from ALVR Server - %s", &settings_buffer[900]);
-                json settings_json = json::parse(&settings_buffer[0]);
+                    alvr_hud_message(&message_buffer[0]);
+                    info("ALVR Poll Event: HUD Message Update - %s", &message_buffer[0]);
 
-                GL(glGenTextures(2, CTX.streamTextures));
-
-                for (auto &streamTexture : CTX.streamTextures) {
-                    GL(glBindTexture(GL_TEXTURE_2D, streamTexture));
-                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-                    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-                    GL(glTexImage2D(GL_TEXTURE_2D,
-                                    0,
-                                    GL_RGB,
-                                    CTX.streamingConfig.view_width,
-                                    CTX.streamingConfig.view_height,
-                                    0,
-                                    GL_RGB,
-                                    GL_UNSIGNED_BYTE,
-                                    nullptr));
+                    if (message_length > 0) {
+                        EGL_MAKE_CURRENT(alvr_update_hud_message_opengl(&message_buffer[0]));
+                    }
                 }
+                if (event.tag == ALVR_EVENT_STREAMING_STARTED) {
+                    info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, generating and binding "
+                         "textures...");
+                    CTX.streamingConfig = event.STREAMING_STARTED;
 
-                CTX.fovArr[0] = getFov((CardboardEye) 0);
-                CTX.fovArr[1] = getFov((CardboardEye) 1);
+                    auto settings_len = alvr_get_settings_json(nullptr);
+                    auto settings_buffer = std::vector<char>(settings_len);
+                    alvr_get_settings_json(&settings_buffer[0]);
 
-                info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, View configs updated...");
+                    info("Got settings from ALVR Server - %s", &settings_buffer[0]);
+                    if (settings_len > 900)   // to workthough logcat buffer limit
+                        info("Got settings from ALVR Server - %s", &settings_buffer[900]);
+                    json settings_json = json::parse(&settings_buffer[0]);
 
-                auto leftIntHandle = (uint32_t) CTX.streamTextures[0];
-                auto rightIntHandle = (uint32_t) CTX.streamTextures[1];
-                const uint32_t *textureHandles[2] = {&leftIntHandle, &rightIntHandle};
+                    GL(glGenTextures(2, CTX.streamTextures));
 
-                auto render_config = AlvrStreamConfig{};
-                render_config.view_resolution_width = CTX.streamingConfig.view_width;
-                render_config.view_resolution_height = CTX.streamingConfig.view_height;
-                render_config.swapchain_textures = textureHandles;
-                render_config.swapchain_length = 1;
+                    for (auto &streamTexture : CTX.streamTextures) {
+                        GL(glBindTexture(GL_TEXTURE_2D, streamTexture));
+                        GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+                        GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+                        GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+                        GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+                        GL(glTexImage2D(GL_TEXTURE_2D,
+                                        0,
+                                        GL_RGB,
+                                        CTX.streamingConfig.view_width,
+                                        CTX.streamingConfig.view_height,
+                                        0,
+                                        GL_RGB,
+                                        GL_UNSIGNED_BYTE,
+                                        nullptr));
+                    }
 
-                render_config.enable_foveation = false;
-                if (!settings_json["video"].is_null()) {
-                    CTX.decoderConfig.force_software_decoder =
-                        settings_json["video"]["force_software_decoder"];
-                    CTX.decoderConfig.buffering_history_weight =
-                        settings_json["video"]["buffering_history_weight"];
-                    CTX.decoderConfig.max_buffering_frames =
-                        settings_json["video"]["max_buffering_frames"];
+                    CTX.fovArr[0] = getFov((CardboardEye) 0);
+                    CTX.fovArr[1] = getFov((CardboardEye) 1);
 
-                    info("settings_json[video][force_software_decoder] is %s ",
-                         settings_json["video"]["force_software_decoder"].dump().c_str());
-                    info("settings_json[video][buffering_history_weight] is %s ",
-                         settings_json["video"]["buffering_history_weight"].dump().c_str());
-                    info("settings_json[video][max_buffering_frames] is %s ",
-                         settings_json["video"]["max_buffering_frames"].dump().c_str());
-                    info("settings_json[video][mediacodec_extra_options] is %s ",
-                         settings_json["video"]["mediacodec_extra_options"].dump().c_str());
+                    info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, View configs updated...");
 
-                    if (!settings_json["video"]["foveated_encoding"].is_null()) {
-                        info("settings_json.video.foveated_encoding is %s",
-                             settings_json["video"]["foveated_encoding"].dump().c_str());
+                    auto leftIntHandle = (uint32_t) CTX.streamTextures[0];
+                    auto rightIntHandle = (uint32_t) CTX.streamTextures[1];
+                    const uint32_t *textureHandles[2] = {&leftIntHandle, &rightIntHandle};
 
-                        // Foveated encoding would be a "Enabled": {Array} or "Disabled" String
-                        if (!settings_json["video"]["foveated_encoding"].is_string()) {
-                            render_config.enable_foveation = true;
-                            render_config.foveation_center_size_x =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["center_size_x"];
-                            render_config.foveation_center_size_y =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["center_size_y"];
-                            render_config.foveation_center_shift_x =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["center_shift_x"];
-                            render_config.foveation_center_shift_y =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["center_shift_y"];
-                            render_config.foveation_edge_ratio_x =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["edge_ratio_x"];
-                            render_config.foveation_edge_ratio_y =
-                                settings_json["video"]["foveated_encoding"]["Enabled"]
-                                             ["edge_ratio_y"];
+                    auto render_config = AlvrStreamConfig{};
+                    render_config.view_resolution_width = CTX.streamingConfig.view_width;
+                    render_config.view_resolution_height = CTX.streamingConfig.view_height;
+                    render_config.swapchain_textures = textureHandles;
+                    render_config.swapchain_length = 1;
+
+                    render_config.enable_foveation = false;
+                    if (!settings_json["video"].is_null()) {
+                        CTX.decoderConfig.force_software_decoder =
+                            settings_json["video"]["force_software_decoder"];
+                        CTX.decoderConfig.buffering_history_weight =
+                            settings_json["video"]["buffering_history_weight"];
+                        CTX.decoderConfig.max_buffering_frames =
+                            settings_json["video"]["max_buffering_frames"];
+
+                        info("settings_json[video][force_software_decoder] is %s ",
+                             settings_json["video"]["force_software_decoder"].dump().c_str());
+                        info("settings_json[video][buffering_history_weight] is %s ",
+                             settings_json["video"]["buffering_history_weight"].dump().c_str());
+                        info("settings_json[video][max_buffering_frames] is %s ",
+                             settings_json["video"]["max_buffering_frames"].dump().c_str());
+                        info("settings_json[video][mediacodec_extra_options] is %s ",
+                             settings_json["video"]["mediacodec_extra_options"].dump().c_str());
+
+                        if (!settings_json["video"]["foveated_encoding"].is_null()) {
+                            info("settings_json.video.foveated_encoding is %s",
+                                 settings_json["video"]["foveated_encoding"].dump().c_str());
+
+                            // Foveated encoding would be a "Enabled": {Array} or "Disabled" String
+                            if (!settings_json["video"]["foveated_encoding"].is_string()) {
+                                render_config.enable_foveation = true;
+                                render_config.foveation_center_size_x =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["center_size_x"];
+                                render_config.foveation_center_size_y =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["center_size_y"];
+                                render_config.foveation_center_shift_x =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["center_shift_x"];
+                                render_config.foveation_center_shift_y =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["center_shift_y"];
+                                render_config.foveation_edge_ratio_x =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["edge_ratio_x"];
+                                render_config.foveation_edge_ratio_y =
+                                    settings_json["video"]["foveated_encoding"]["Enabled"]
+                                                 ["edge_ratio_y"];
+                            } else
+                                info("foveated_encoding is Disabled");
                         } else
-                            info("foveated_encoding is Disabled");
+                            error("settings_json doesn't have a video.foveated_encoding key");
                     } else
-                        error("settings_json doesn't have a video.foveated_encoding key");
-                } else
-                    error("settings_json doesn't have a video key");
+                        error("settings_json doesn't have a video key");
 
-                info("Settings for foveation:");
-                info("render_config.enable_foveation: %b", render_config.enable_foveation);
-                info("render_config.foveation_center_size_x: %f",
-                     render_config.foveation_center_size_x);
-                info("render_config.foveation_center_size_y: %f",
-                     render_config.foveation_center_size_y);
-                info("render_config.foveation_center_shift_x: %f",
-                     render_config.foveation_center_shift_x);
-                info("render_config.foveation_center_shift_y: %f",
-                     render_config.foveation_center_shift_y);
-                info("render_config.foveation_edge_ratio_x: %f",
-                     render_config.foveation_edge_ratio_x);
-                info("render_config.foveation_edge_ratio_y: %f",
-                     render_config.foveation_edge_ratio_y);
+                    info("Settings for foveation:");
+                    info("render_config.enable_foveation: %b", render_config.enable_foveation);
+                    info("render_config.foveation_center_size_x: %f",
+                         render_config.foveation_center_size_x);
+                    info("render_config.foveation_center_size_y: %f",
+                         render_config.foveation_center_size_y);
+                    info("render_config.foveation_center_shift_x: %f",
+                         render_config.foveation_center_shift_x);
+                    info("render_config.foveation_center_shift_y: %f",
+                         render_config.foveation_center_shift_y);
+                    info("render_config.foveation_edge_ratio_x: %f",
+                         render_config.foveation_edge_ratio_x);
+                    info("render_config.foveation_edge_ratio_y: %f",
+                         render_config.foveation_edge_ratio_y);
 
-                EGL_MAKE_CURRENT(alvr_start_stream_opengl(render_config));
+                    EGL_MAKE_CURRENT(alvr_start_stream_opengl(render_config));
 
-                info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, opengl stream started and "
-                     "input "
-                     "Thread started...");
-                CTX.streaming = true;
-                CTX.inputThread = std::thread(inputThread);
+                    info("ALVR Poll Event: ALVR_EVENT_STREAMING_STARTED, opengl stream started and "
+                         "input "
+                         "Thread started...");
+                    CTX.streaming = true;
+                    CTX.inputThread = std::thread(inputThread);
 
-            } else if (event.tag == ALVR_EVENT_STREAMING_STOPPED) {
-                info("ALVR Poll Event: ALVR_EVENT_STREAMING_STOPPED, Waiting for inputThread to "
-                     "join...");
-                CTX.streaming = false;
-                CTX.inputThread.join();
+                } else if (event.tag == ALVR_EVENT_STREAMING_STOPPED) {
+                    info(
+                        "ALVR Poll Event: ALVR_EVENT_STREAMING_STOPPED, Waiting for inputThread to "
+                        "join...");
+                    CTX.streaming = false;
+                    CTX.inputThread.join();
 
-                GL(glDeleteTextures(2, CTX.streamTextures));
-                info("ALVR Poll Event: ALVR_EVENT_STREAMING_STOPPED, Stream stopped deleted "
-                     "textures.");
-            } else if (event.tag == ALVR_EVENT_DECODER_CONFIG) {
-                info("ALVR Poll Event: ALVR_EVENT_DECODER_CONFIG, ");
-                CTX.decoderConfig.codec = event.DECODER_CONFIG.codec;
-                initialize_decoder(CTX.decoderConfig);
+                    GL(glDeleteTextures(2, CTX.streamTextures));
+                    info("ALVR Poll Event: ALVR_EVENT_STREAMING_STOPPED, Stream stopped deleted "
+                         "textures.");
+                } else if (event.tag == ALVR_EVENT_DECODER_CONFIG) {
+                    info("ALVR Poll Event: ALVR_EVENT_DECODER_CONFIG, ");
+                    CTX.decoderConfig.codec = event.DECODER_CONFIG.codec;
+                    initialize_decoder(CTX.decoderConfig);
+                }
             }
-        }
 
-        CardboardEyeTextureDescription viewsDescs[2] = {};
-        for (auto &viewsDesc : viewsDescs) {
-            viewsDesc.left_u = 0.0;
-            viewsDesc.right_u = 1.0;
-            viewsDesc.top_v = 1.0;
-            viewsDesc.bottom_v = 0.0;
-        }
-
-        if (CTX.passthroughInfo.enabled) {
-            passthrough_render(&(CTX.passthroughInfo), viewsDescs);
-        } else if (CTX.streaming) {
-            void *streamHardwareBuffer = nullptr;
-
-            uint64_t timestampNs;
-            alvr_get_frame(&timestampNs, &streamHardwareBuffer);
-
-            const AlvrStreamViewParams streamViewParams[2] = {
-                {0, getReprojectionRotationDelta(), CTX.fovArr[kLeft]},
-                {0, getReprojectionRotationDelta(), CTX.fovArr[kRight]},
-            };
-
-            EGL_MAKE_CURRENT(alvr_render_stream_opengl(streamHardwareBuffer, streamViewParams));
-
-            alvr_report_submit(timestampNs, 0);
-
-            viewsDescs[0].texture = CTX.streamTextures[0];
-            viewsDescs[1].texture = CTX.streamTextures[1];
-        } else {
-            info("Getting pose for Rendering Lobby...");
-            AlvrPose pose = getPose(GetBootTimeNano() + VSYNC_QUEUE_INTERVAL_NS);
-
-            AlvrLobbyViewParams viewInputs[2] = {};
-            for (int eye = 0; eye < 2; eye++) {
-                float headToEye[3] = {CTX.eyeOffsets[eye], 0.0, 0.0};
-                // offset head pos to Eye Position
-                offsetPosWithQuat(pose.orientation, headToEye, viewInputs[eye].pose.position);
-
-                viewInputs[eye].swapchain_index = 0;
-                viewInputs[eye].pose.orientation = pose.orientation;
-                viewInputs[eye].fov = getFov((CardboardEye) eye);
+            CardboardEyeTextureDescription viewsDescs[2] = {};
+            for (auto &viewsDesc : viewsDescs) {
+                viewsDesc.left_u = 0.0;
+                viewsDesc.right_u = 1.0;
+                viewsDesc.top_v = 1.0;
+                viewsDesc.bottom_v = 0.0;
             }
-            info("Rendering Lobby...");
-            EGL_MAKE_CURRENT(alvr_render_lobby_opengl(viewInputs, true));
 
-            viewsDescs[0].texture = CTX.lobbyTextures[0];
-            viewsDescs[1].texture = CTX.lobbyTextures[1];
+            if (CTX.passthroughInfo.enabled) {
+                passthrough_render(&(CTX.passthroughInfo), viewsDescs);
+            } else if (CTX.streaming) {
+                void *streamHardwareBuffer = nullptr;
+
+                uint64_t timestampNs;
+                alvr_get_frame(&timestampNs, &streamHardwareBuffer);
+
+                const AlvrStreamViewParams streamViewParams[2] = {
+                    {0, getReprojectionRotationDelta(), CTX.fovArr[kLeft]},
+                    {0, getReprojectionRotationDelta(), CTX.fovArr[kRight]},
+                };
+
+                EGL_MAKE_CURRENT(alvr_render_stream_opengl(streamHardwareBuffer, streamViewParams));
+
+                alvr_report_submit(timestampNs, 0);
+
+                viewsDescs[0].texture = CTX.streamTextures[0];
+                viewsDescs[1].texture = CTX.streamTextures[1];
+            } else {
+                info("Getting pose for Rendering Lobby...");
+                AlvrPose pose = getPose(GetBootTimeNano() + VSYNC_QUEUE_INTERVAL_NS);
+
+                AlvrLobbyViewParams viewInputs[2] = {};
+                for (int eye = 0; eye < 2; eye++) {
+                    float headToEye[3] = {CTX.eyeOffsets[eye], 0.0, 0.0};
+                    // offset head pos to Eye Position
+                    offsetPosWithQuat(pose.orientation, headToEye, viewInputs[eye].pose.position);
+
+                    viewInputs[eye].swapchain_index = 0;
+                    viewInputs[eye].pose.orientation = pose.orientation;
+                    viewInputs[eye].fov = getFov((CardboardEye) eye);
+                }
+                info("Rendering Lobby...");
+                EGL_MAKE_CURRENT(alvr_render_lobby_opengl(viewInputs, true));
+
+                viewsDescs[0].texture = CTX.lobbyTextures[0];
+                viewsDescs[1].texture = CTX.lobbyTextures[1];
+            }
+
+            CardboardDistortionRenderer_renderEyeToDisplay(CTX.distortionRenderer,
+                                                           0,
+                                                           0,
+                                                           0,
+                                                           CTX.screenWidth,
+                                                           CTX.screenHeight,
+                                                           &viewsDescs[0],
+                                                           &viewsDescs[1]);
+
+            info("Rendered to Display");
         }
-
-        CardboardDistortionRenderer_renderEyeToDisplay(CTX.distortionRenderer,
-                                                       0,
-                                                       0,
-                                                       0,
-                                                       CTX.screenWidth,
-                                                       CTX.screenHeight,
-                                                       &viewsDescs[0],
-                                                       &viewsDescs[1]);
-
-        info("Rendered to Display");
-    } catch (const json::exception &e) {
-        error(std::string(std::string(__FUNCTION__) + std::string(__FILE_NAME__) +
-                          std::string(e.what()))
-                  .c_str());
+        catch (const json::exception &e) {
+            error(std::string(std::string(__FUNCTION__) + std::string(__FILE_NAME__) +
+                              std::string(e.what()))
+                      .c_str());
+        }
     }
-}
 
-extern "C" JNIEXPORT void JNICALL
-Java_viritualisres_phonevr_ALVRActivity_switchViewerNative(JNIEnv *, jobject) {
-    CardboardQrCode_scanQrCodeAndSaveDeviceParams();
-}
+    extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_switchViewerNative(
+        JNIEnv *, jobject) {
+        CardboardQrCode_scanQrCodeAndSaveDeviceParams();
+    }
