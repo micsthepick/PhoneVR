@@ -336,9 +336,9 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
                 passthrough_setup(&(CTX.passthroughInfo));
             } else {
                 info("Rebuilding, binding textures, Resuming ALVR since glContextRecreated %b, "
-                    "renderingParamsChanged %b",
-                    CTX.renderingParamsChanged,
-                    CTX.glContextRecreated);
+                     "renderingParamsChanged %b",
+                     CTX.renderingParamsChanged,
+                     CTX.glContextRecreated);
                 GL(glGenTextures(2, CTX.lobbyTextures));
 
                 for (auto &lobbyTexture : CTX.lobbyTextures) {
@@ -359,7 +359,7 @@ extern "C" JNIEXPORT void JNICALL Java_viritualisres_phonevr_ALVRActivity_render
                 }
 
                 const uint32_t *targetViews[2] = {(uint32_t *) &CTX.lobbyTextures[0],
-                                                (uint32_t *) &CTX.lobbyTextures[1]};
+                                                  (uint32_t *) &CTX.lobbyTextures[1]};
                 alvr_resume_opengl(CTX.screenWidth / 2, CTX.screenHeight, targetViews, 1, true);
 
                 CTX.renderingParamsChanged = false;

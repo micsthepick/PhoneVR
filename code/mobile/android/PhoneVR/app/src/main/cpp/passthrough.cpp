@@ -1,6 +1,6 @@
 #include "alvr_client_core.h"
-#include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
+#include <GLES3/gl3.h>
 #include <vector>
 
 #include "passthrough.h"
@@ -181,7 +181,7 @@ void passthrough_render(PassthroughInfo *info, CardboardEyeTextureDescription vi
         // Draw Mesh
         glEnableVertexAttribArray(texturePositionParam_);
         glVertexAttribPointer(
-                texturePositionParam_, 2, GL_FLOAT, false, 0, info->passthroughVertices);
+            texturePositionParam_, 2, GL_FLOAT, false, 0, info->passthroughVertices);
         glEnableVertexAttribArray(textureUvParam_);
         glVertexAttribPointer(textureUvParam_, 2, GL_FLOAT, false, 0, passthroughTexCoords);
 
