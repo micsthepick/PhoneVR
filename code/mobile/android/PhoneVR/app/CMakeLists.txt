@@ -17,6 +17,8 @@ file(GLOB_RECURSE LIB_SRC
 add_library(native-lib-alvr SHARED
     src/main/cpp/alvr_main.cpp
     ${LIB_SRC}
+    src/main/cpp/passthrough.cpp
+    ${MY_SRC}
 )
 
 set(libs_dir ${CMAKE_CURRENT_SOURCE_DIR}/libraries)

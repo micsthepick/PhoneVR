@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
     <item android:id="@+id/switch_viewer"
@@ -10,4 +11,11 @@
         android:id="@+id/max_brightness_toggle"
         android:title="@string/max_brightness"
         android:checkable="true"/>
+    <item
+        android:id="@+id/passthrough_settings"
+        android:title="Passthrough Settings" />
+    <item
+        android:id="@+id/passthrough"
+        android:checkable="true"
+        android:title="Passthrough" />
 </menu>
